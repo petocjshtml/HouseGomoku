@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+  <meta charset="UTF-8">
+  <title>Piškôrky 1 vs 1</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: #f4f4f4;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      font-family: sans-serif;
+    }
+    h1 { margin: 0; color: #333; }
+    #board {
+      position: relative;
+      background-color: #f1c27d;
+      width: calc(min(90vmin, 90vmax));
+      height: calc(min(90vmin, 90vmax));
+      box-shadow: 0 0 10px rgba(0,0,0,0.2);
+    }
+    #board.waiting { box-shadow: 0 0 20px 4px red !important; }
+    #board.active { box-shadow: 0 0 20px 4px limegreen !important; }
+    canvas { width: 100%; height: 100%; display: block; }
+    #newGameBtn {
+      display: none;
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      padding: 14px 28px;
+      font-size: 20px;
+      font-weight: bold;
+      background-color: rgba(255, 255, 255, 0.6);
+      border: 2px solid #888;
+      border-radius: 12px;
+      cursor: pointer;
+      z-index: 5;
+      backdrop-filter: blur(6px);
+    }
+    #newGameBtn:hover { background-color: rgba(255, 255, 255, 0.75); }
+  </style>
+</head>
+<body>
+  <div style="display: flex; align-items: center; gap: 30px;">
+    <div id="scoreLeft" style="font-weight: bold; font-size: 20px;">👉 ⚫ 0</div>
+    <h1 style="margin: 0;">Piškôrky 1 vs 1</h1>
+    <div id="scoreRight" style="font-weight: bold; font-size: 20px;">⚪ 0</div>
+  </div>
+
+  <div id="board" class="waiting">
+    <canvas id="canvas"></canvas>
+    <button id="newGameBtn" onclick="sendRematch()">🔁 New Game</button>
+  </div>
+
+  <div id="full-message" style="display:none; text-align:center; padding: 40px;">
+    <h2>🎮 Herná je plná</h2>
+    <p>Momentálne sú už pripojení dvaja hráči.<br>Skús to prosím neskôr.</p>
+  </div>
+
+  <div id="notification" style="display:none; position: fixed; top: 20px; right: 20px; background: white; border: 1px solid #ccc; padding: 12px 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); font-size: 16px; z-index: 10;"></div>
+
+  <script>
+    const size = 15;
+    const board = Array.from({ length: size }, () => Array(size).fill(0));
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const newGameBtn = document.getElementById("newGameBtn");
+    const boardDiv = document.getElementById("board");
+
+    let lastMove = null;
+    let score = { player1: 0, player2: 0 };
+    let playerColor = 0;
+    let playerIndex = 1;
+    let gameReady = false;
+
+    const socket = new WebSocket("ws://localhost:3000");
+
+    function resizeCanvas() {
+      const boardSize = Math.min(window.innerWidth, window.innerHeight - 100);
+      canvas.width = boardSize;
+      canvas.height = boardSize;
+      drawBoard();
+    }
+
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+
+    function drawBoard() {
+      const w = canvas.width;
+      const h = canvas.height;
+      const cell = w / (size - 1);
+
+      ctx.clearRect(0, 0, w, h);
+      ctx.strokeStyle = "#8b5a2b";
+      ctx.lineWidth = 1.5;
+
+      for (let i = 0; i < size; i++) {
+        let pos = i * cell;
+        ctx.beginPath(); ctx.moveTo(pos, 0); ctx.lineTo(pos, h); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, pos); ctx.lineTo(w, pos); ctx.stroke();
+      }
+
+      for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+          if (board[y][x] !== 0) drawStone(x, y, board[y][x]);
+        }
+      }
+    }
+
+    function drawStone(x, y, color) {
+      const cell = canvas.width / (size - 1);
+      const radius = cell * 0.4;
+      const px = x * cell;
+      const py = y * cell;
+
+      ctx.beginPath();
+      ctx.arc(px, py, radius, 0, Math.PI * 2);
+      ctx.fillStyle = color === -1 ? "black" : "white";
+      ctx.fill();
+
+      if (lastMove && lastMove.x === x && lastMove.y === y) {
+        ctx.beginPath();
+        ctx.arc(px, py, radius, 0, Math.PI * 2);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = color === -1 ? "white" : "black";
+        ctx.stroke();
+      }
+    }
+
+    function showNotification(text) {
+      const notif = document.getElementById('notification');
+      notif.textContent = text;
+      notif.style.display = 'block';
+      setTimeout(() => notif.style.display = 'none', 3000);
+    }
+
+    function sendRematch() {
+      socket.send(JSON.stringify({ type: "rematch" }));
+      newGameBtn.textContent = "⏳ Čaká sa na súpera...";
+      newGameBtn.disabled = true;
+    }
+
+    function updateScoreDisplay() {
+      const leftColor = playerColor;
+      const rightColor = -playerColor;
+
+      const leftIcon = leftColor === -1 ? "⚫" : "⚪";
+      const rightIcon = rightColor === -1 ? "⚫" : "⚪";
+
+      const leftScore = playerIndex === 1 ? score.player1 : score.player2;
+      const rightScore = playerIndex === 2 ? score.player1 : score.player2;
+
+      document.getElementById("scoreLeft").textContent = `👉 ${leftIcon} ${leftScore}`;
+      document.getElementById("scoreRight").textContent = `${rightIcon} ${rightScore}`;
+    }
+
+    canvas.addEventListener("click", (e) => {
+      if (!gameReady) {
+        showNotification("🕓 Čaká sa na druhého hráča...");
+        return;
+      }
+      const rect = canvas.getBoundingClientRect();
+      const cell = canvas.width / (size - 1);
+      const x = Math.round((e.clientX - rect.left) / cell);
+      const y = Math.round((e.clientY - rect.top) / cell);
+      socket.send(JSON.stringify({ type: "move", x, y }));
+    });
+
+    socket.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+      if (msg.type === "full") {
+        boardDiv.style.display = "none";
+        document.getElementById("full-message").style.display = "block";
+        return;
+      }
+
+      if (msg.type === "init") {
+        playerColor = msg.color;
+        playerIndex = msg.playerIndex;
+        score = msg.score;
+        updateScoreDisplay();
+        showNotification("Tvoja farba: " + (playerColor === -1 ? "⚫ Čierna" : "⚪ Biela"));
+        if (msg.playerCount < 2) {
+          gameReady = false;
+          boardDiv.classList.add("waiting");
+          boardDiv.classList.remove("active");
+        }
+      }
+
+      if (msg.type === "ready") {
+        gameReady = true;
+        boardDiv.classList.remove("waiting");
+        boardDiv.classList.add("active");
+      }
+
+      if (msg.type === "update") {
+        msg.board.forEach((row, y) => {
+          row.forEach((val, x) => board[y][x] = val);
+        });
+        lastMove = msg.lastMove || null;
+        drawBoard();
+        newGameBtn.style.display = "none";
+        newGameBtn.disabled = false;
+        newGameBtn.textContent = "🔁 New Game";
+      }
+
+      if (msg.type === "win") {
+        showNotification(msg.winner === playerColor ? "🎉 Výhra!" : "❌ Prehra");
+        newGameBtn.style.display = "block";
+        score = msg.score;
+        updateScoreDisplay();
+      }
+
+      if (msg.type === "rematch-request") {
+        showNotification("Súper žiada odvetu");
+      }
+    };
+  </script>
+</body>
+</html>
