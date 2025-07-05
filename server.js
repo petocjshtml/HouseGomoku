@@ -1,5 +1,10 @@
+const http = require('http');
 const WebSocket = require('ws');
-const server = new WebSocket.Server({ port: 3000 });
+const server = http.createServer((req, res) => {
+  res.writeHead(200);
+  res.end('Server je nažive!');
+});
+const wss = new WebSocket.Server({ server });
 
 const boardSize = 15;
 let board = Array.from({ length: boardSize }, () => Array(boardSize).fill(0));
@@ -47,7 +52,7 @@ function notifyPlayer(ws, msg) {
   }
 }
 
-server.on('connection', (ws) => {
+wss.on('connection', (ws) => {
   if (players.length >= 2) {
     ws.send(JSON.stringify({ type: 'full' }));
     ws.close();
@@ -154,4 +159,7 @@ server.on('connection', (ws) => {
   });
 });
 
-console.log("WebSocket server beží na porte 3000");
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`🚀 Server beží na porte ${PORT}`);
+});
