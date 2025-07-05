@@ -78,7 +78,7 @@
     let playerIndex = 1;
     let gameReady = false;
 
-    const socket = new WebSocket("ws://localhost:3000");
+    const socket = new WebSocket('wss://housegomoku.onrender.com');
 
     function resizeCanvas() {
       const boardSize = Math.min(window.innerWidth, window.innerHeight - 100);
